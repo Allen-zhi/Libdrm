@@ -1112,13 +1112,9 @@ static int drmOpenByName(const char *name, int type)
                     drmFreeVersion(version);
                     id = drmGetBusid(fd);
                     drmMsg("drmGetBusid returned '%s'\n", id ? id : "NULL");
-                    if (!id || !*id) {
-                        if (id)
-                            drmFreeBusid(id);
-                        return fd;
-                    } else {
+                    if (id)
                         drmFreeBusid(id);
-                    }
+                    return fd;
                 } else {
                     drmFreeVersion(version);
                 }
