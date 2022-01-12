@@ -1433,6 +1433,9 @@ drm_public char *drmGetBusid(int fd)
 {
     drm_unique_t u;
 
+    if (!getenv("DRM_ALLOW_GET_BUSID"))
+        return strdup("libdrm-fake-busid");
+
     memclear(u);
 
     if (drmIoctl(fd, DRM_IOCTL_GET_UNIQUE, &u))
@@ -2988,6 +2991,9 @@ drm_public int drmSetInterfaceVersion(int fd, drmSetVersion *version)
 {
     int retcode = 0;
     drm_set_version_t sv;
+
+    if (!getenv("DRM_ALLOW_SET_VERSION"))
+        return 0;
 
     memclear(sv);
     sv.drm_di_major = version->drm_di_major;
