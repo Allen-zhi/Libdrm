@@ -1043,7 +1043,7 @@ static bool set_property(struct device *dev, struct property_arg *p)
 
 	p->prop_id = props->props[i];
 
-	if (!dev->use_atomic)
+	if (1 || !dev->use_atomic)
 		ret = drmModeObjectSetProperty(dev->fd, p->obj_id, p->obj_type,
 									   p->prop_id, p->value);
 	else
