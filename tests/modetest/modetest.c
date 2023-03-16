@@ -135,6 +135,12 @@ struct device {
 	drmModeAtomicReq *req;
 };
 
+struct gamma {
+	float red;
+	float green;
+	float blue;
+};
+
 static inline int64_t U642I64(uint64_t val)
 {
 	return (int64_t)*((int64_t *)&val);
@@ -1138,13 +1144,14 @@ static void set_gamma(struct device *dev, unsigned crtc_id, unsigned fourcc)
 	} else {
 		for (i = 0; i < 256; i++) {
 			gamma_lut[i].red =
-			gamma_lut[i].green =
+			gamma_lut[i].green = 
 			gamma_lut[i].blue = i << 8;
 		}
 	}
 
 	add_property_optional(dev, crtc_id, "DEGAMMA_LUT", 0);
 	add_property_optional(dev, crtc_id, "CTM", 0);
+#if 0
 	if (!add_property_optional(dev, crtc_id, "GAMMA_LUT", blob_id)) {
 		uint16_t r[256], g[256], b[256];
 
@@ -1153,11 +1160,11 @@ static void set_gamma(struct device *dev, unsigned crtc_id, unsigned fourcc)
 			g[i] = gamma_lut[i].green;
 			b[i] = gamma_lut[i].blue;
 		}
-
-		ret = drmModeCrtcSetGamma(dev->fd, crtc_id, 256, r, g, b);
+		ret = drmModeCrtcSetGamma(dev->fd, crtc_id, 1024, r, g, b);
 		if (ret)
 			fprintf(stderr, "failed to set gamma: %s\n", strerror(errno));
 	}
+#endif
 }
 
 static int
@@ -1844,6 +1851,39 @@ err_rmfb:
 
 #define min(a, b)	((a) < (b) ? (a) : (b))
 
+static void test_set_gamma(struct device *dev, struct gamma *ga, int size)
+{
+	printf("-czz-  1 r:%f g:%f b:%f size %d \n", &ga->red, &ga->green, &ga->blue, size);
+
+	struct drm_color_lut gamma_lut[size];
+	int i, ret;
+	uint16_t r[size], g[size], b[size];
+	int test_size = 1024;
+	float gammaRed, gammaGreen, gammaBlue;
+	
+	gammaRed = 1.0;
+	gammaGreen = 1.0;
+	gammaBlue = 1.0;
+
+	for (i = 0; i < 1024; i++) {
+		gamma_lut[i].red =
+		gamma_lut[i].green =
+		gamma_lut[i].blue = i << 8;
+	}
+
+	for (i = 0; i < 1024; i++) {
+		r[i] = min(pow((double)i/(double)(test_size - 1),
+					gammaRed), 1.0) * 65535.0;
+		g[i] = min(pow((double)i/(double)(test_size - 1),
+					gammaGreen), 1.0) * 65535.0;
+		b[i] = min(pow((double)i/(double)(test_size - 1),
+					gammaBlue), 1.0) * 65535.0;
+	}
+	ret = drmModeCrtcSetGamma(dev->fd, 68, 1024, r, g, b);
+	if (ret)
+		fprintf(stderr, "failed to set gamma: %s\n", strerror(errno));
+};
+
 static int parse_connector(struct pipe_arg *pipe, const char *arg)
 {
 	unsigned int len;
@@ -1987,6 +2027,20 @@ static int parse_property(struct property_arg *p, const char *arg)
 	return 0;
 }
 
+static int parse_gamma(struct gamma *g, const char *arg)
+{
+	if (sscanf(arg, "%2f:%2f:%2f", &g->red, &g->green, &g->blue) != 3){
+		printf("-czz- error \n");
+		return -1;
+	}
+
+//	p->obj_type = 0;
+//	p->name[DRM_PROP_NAME_LEN] = '\0';
+	printf("-czz- %s r:%f g:%f b:%f \n", arg, &g->red, &g->green, &g->blue);
+
+	return 0;
+}
+
 static void parse_fill_patterns(char *arg)
 {
 	char *fill = strtok(arg, ",");
@@ -2001,7 +2055,7 @@ static void parse_fill_patterns(char *arg)
 
 static void usage(char *name)
 {
-	fprintf(stderr, "usage: %s [-acDdefMPpsCvrw]\n", name);
+	fprintf(stderr, "usage: %s [-acDdefMPpsCvrwg]\n", name);
 
 	fprintf(stderr, "\n Query options:\n\n");
 	fprintf(stderr, "\t-c\tlist connectors\n");
@@ -2018,6 +2072,7 @@ static void usage(char *name)
 	fprintf(stderr, "\t-w <obj_id>:<prop_name>:<value>\tset property\n");
 	fprintf(stderr, "\t-a \tuse atomic API\n");
 	fprintf(stderr, "\t-F pattern1,pattern2\tspecify fill patterns\n");
+	fprintf(stderr, "\t-g set gamma [<crtc_id>] r:g:b \n");
 
 	fprintf(stderr, "\n Generic options:\n\n");
 	fprintf(stderr, "\t-d\tdrop master after mode set\n");
@@ -2028,7 +2083,7 @@ static void usage(char *name)
 	exit(0);
 }
 
-static char optstr[] = "acdD:efF:M:P:ps:Cvrw:";
+static char optstr[] = "acdD:efF:M:P:ps:Cvrwg:";
 
 int main(int argc, char **argv)
 {
@@ -2045,11 +2100,15 @@ int main(int argc, char **argv)
 	unsigned int i;
 	unsigned int count = 0, plane_count = 0;
 	unsigned int prop_count = 0;
+	unsigned int gamma_count = 0;
 	struct pipe_arg *pipe_args = NULL;
 	struct plane_arg *plane_args = NULL;
 	struct property_arg *prop_args = NULL;
+	struct gamma *gamma_luts = NULL;
 	unsigned int args = 0;
 	int ret;
+	int test_gamma = 0;
+//	int gamma_lut_size = 1024;
 
 	memset(&dev, 0, sizeof dev);
 
@@ -2143,6 +2202,22 @@ int main(int argc, char **argv)
 
 			prop_count++;
 			break;
+		case 'g':
+			test_gamma = 1;
+			gamma_luts = realloc(gamma_luts,
+					     (gamma_count + 1) * sizeof *gamma_luts);
+			if (gamma_luts == NULL) {
+				fprintf(stderr, "memory allocation failed\n");
+				return 1;
+			}
+			memset(&gamma_luts[gamma_count], 0, sizeof(*gamma_luts));
+
+			if (parse_gamma(&gamma_luts[gamma_count], optarg) < 0)
+				usage(argv[0]);
+
+			gamma_count++;
+
+			break;
 		default:
 			usage(argv[0]);
 			break;
@@ -2230,6 +2305,9 @@ int main(int argc, char **argv)
 			if (test_vsync)
 				atomic_test_page_flip(&dev, pipe_args, plane_args, plane_count);
 
+			if (test_gamma)
+				test_set_gamma(&dev, gamma_luts, 1024);
+
 			if (drop_master)
 				drmDropMaster(dev.fd);
 
@@ -2278,6 +2356,9 @@ int main(int argc, char **argv)
 
 			if (drop_master)
 				drmDropMaster(dev.fd);
+
+			if (test_gamma)
+				test_set_gamma(&dev, gamma_luts, 1024);
 
 			getchar();
 
