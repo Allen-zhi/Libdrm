@@ -139,6 +139,9 @@ struct gamma {
 	float red;
 	float green;
 	float blue;
+	uint32_t rgain;
+	uint32_t ggain;
+	uint32_t bgain;
 };
 
 static inline int64_t U642I64(uint64_t val)
@@ -1853,16 +1856,25 @@ err_rmfb:
 }
 
 #define min(a, b)	((a) < (b) ? (a) : (b))
+#define max(a, b)	((a) > (b) ? (a) : (b))
+#define CLP(x, min_v, max_v) min(max(x, min_v), max_v)
 
 static void test_set_gamma(struct device *dev, struct gamma *p, int size)
 {
 	int i, ret;
 	uint16_t r[size], g[size], b[size];
 	float gammaRed, gammaGreen, gammaBlue;
+	const unsigned short max_vl = 65535;
+	const int gain_bit = 8;
+	uint32_t rgain, ggain, bgain;
 	
 	gammaRed = 1.0 / p->red;
 	gammaGreen = 1.0 / p->green;
 	gammaBlue = 1.0 / p->blue;
+
+	rgain = p->rgain;
+	ggain = p->ggain;
+	bgain = p->bgain;
 
 	for (i = 0; i < size; i++) {
 		r[i] = min(pow((double)i/(double)(size - 1),
@@ -1872,6 +1884,13 @@ static void test_set_gamma(struct device *dev, struct gamma *p, int size)
 		b[i] = min(pow((double)i/(double)(size - 1),
 					gammaBlue), 1.0) * 65535.0;
 	}
+
+	for (i = 0; i < size; i++) {
+		r[i] = CLP((r[i] * rgain + (1 << (gain_bit -1))) >> (gain_bit), 0, max_vl);
+		g[i] = CLP((r[i] * ggain + (1 << (gain_bit -1))) >> (gain_bit), 0, max_vl);
+		b[i] = CLP((r[i] * bgain + (1 << (gain_bit -1))) >> (gain_bit), 0, max_vl);
+	}
+
 	ret = drmModeCrtcSetGamma(dev->fd, gamma_crtc_id, size, r, g, b);
 
 	if (ret)
@@ -2023,7 +2042,7 @@ static int parse_property(struct property_arg *p, const char *arg)
 
 static int parse_gamma(struct gamma *g, const char *arg)
 {
-	if (sscanf(arg, "%f:%f:%f", &g->red, &g->green, &g->blue) != 3)
+	if (sscanf(arg, "%f:%f:%f:%d:%d:%d", &g->red, &g->green, &g->blue, &g->rgain, &g->ggain, &g->bgain) != 6)
 		return -1;
 
 	return 0;
